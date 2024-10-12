@@ -24,7 +24,7 @@ def play_task(playing, audio_queue, sample_rate, block_size):
                 data = audio_queue.get_nowait()
                 sp.play(data)
             except Empty:
-                time.sleep(0.00001)
+                time.sleep(0.00005)
 
 
 def apply_band_filter(b, a, data, gain):
