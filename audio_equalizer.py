@@ -1,14 +1,15 @@
 import os
 import time
-import numpy as np
-import soundcard as sc
-import tkinter as tk
 import configparser
+import tkinter as tk
 from threading import Thread
 from queue import Empty
+from multiprocessing import Process, Queue, Value, Pool
+
+import numpy as np
+import soundcard as sc
 from scipy.signal import butter, lfilter
 
-from multiprocessing import Process, Queue, Value, Pool
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
