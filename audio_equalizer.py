@@ -1,22 +1,44 @@
-import numpy as np
+import time
 import soundcard as sc
+from threading import Thread
+from queue import Queue, Empty
 
-# get a list of all speakers:
+output_speaker_name = "BenQ GW2765"
+
 speakers = sc.all_speakers()
-# get the current default speaker on your system:
-default_speaker = sc.default_speaker()
 
-print(default_speaker)
+speaker = next(s for s in speakers if output_speaker_name in s.name)
 
-num_channels = default_speaker.channels
 sample_rate = 96000
+playback_seconds = 10
+input_speaker_name = "Digital Audio (S/PDIF)"
+block_size = 1024*4
+record_size = block_size * 10
+num_samples = playback_seconds * sample_rate
+num_iters = num_samples // record_size
 
-# Create the multi channel noise array.
-noise_samples = 5 * sample_rate
-noise = np.random.uniform(-0.1, 0.1, noise_samples)
-data = np.zeros((num_channels * noise_samples, num_channels), dtype=np.float32)
-for channel in range(num_channels):
-    data[channel * noise_samples:(channel + 1) * noise_samples, channel] = noise
+mics = sc.all_microphones(include_loopback=True)
 
-with default_speaker.player(samplerate=sample_rate) as sp:
-    sp.play(data)
+loopback_mic = next(m for m in mics if input_speaker_name in m.name)
+
+audio_queue = Queue()
+playing = True
+
+def play_task():
+    with speaker.player(samplerate=sample_rate, blocksize=block_size) as sp:
+        while playing:
+            try:
+                data = audio_queue.get_nowait()
+                sp.play(data)
+            except Empty:
+                time.sleep(0.001)
+
+play_thread = Thread(target=play_task)
+play_thread.start()
+
+with loopback_mic.recorder(samplerate=sample_rate, blocksize=block_size) as mic:
+    for _ in range(record_size):
+        audio_queue.put(mic.record(record_size))
+
+playing = False
+play_thread.join()
