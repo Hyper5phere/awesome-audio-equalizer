@@ -8,7 +8,7 @@ from threading import Thread
 from queue import Empty
 from scipy.signal import butter, lfilter
 
-from multiprocessing import Process, Queue, Value
+from multiprocessing import Process, Queue, Value, Pool
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -27,11 +27,16 @@ def play_task(playing, audio_queue, sample_rate, block_size):
                 time.sleep(0.00001)
 
 
+def apply_band_filter(b, a, data, gain):
+    return lfilter(b, a, data, axis=0) * (10 ** (gain/20))
+
 class AudioEqualizerGUI:
     def __init__(self, master):
         self.master = master
-        master.title("Audio Equalizer")
-        master.geometry("1400x450")
+        self.window_width = 1400
+        self.window_height = 540
+        master.title("Awesome Audio Equalizer")
+        master.geometry(f"{self.window_width}x{self.window_height}")
 
         self.freq_bands = [
             (40, 76),
@@ -69,6 +74,7 @@ class AudioEqualizerGUI:
         self.button_width = 30
 
         self.audio_queue = Queue()
+        self.num_dsp_processes = self.config.getint("num_dsp_processes")
         self.playing = Value('b', True)
         self.sample_rate_shared = Value('i', self.sample_rate)
         self.block_size_shared = Value('i', self.block_size)
@@ -94,6 +100,7 @@ class AudioEqualizerGUI:
 
     
     def create_widgets(self):
+        
         # Frame for sliders
         self.sliders_frame = tk.Frame(self.master)
         self.sliders_frame.pack(fill=tk.Y, pady=10)
@@ -141,9 +148,19 @@ class AudioEqualizerGUI:
         
         # Status Label
         self.status_label = tk.Label(self.master, text="Equalizer not applied", fg="blue", font=("Helvetica", 12))
-        self.status_label.pack(pady=10)
+        self.status_label.pack(pady=5)
+
+        self.vol_slider = tk.Scale(self.master, from_=0, to=100, orient=tk.HORIZONTAL, resolution=1, length=int(self.window_width * 0.9),
+                                   command=self.update_volume)
+        self.vol_slider.pack(pady=2)
+        self.vol_slider.set(int(self.volume * 100))
+        self.vol_label = tk.Label(self.master, text="Master Volume", font=("Helvetica", 12))
+        self.vol_label.pack(pady=5)
         
         
+    def update_volume(self, volume):
+        self.volume = int(volume) / 100.
+        self.status_label.config(text=f"Updated volume to {volume} %", fg="blue")
 
 
     def update_gain(self, band_index, gain_db):
@@ -182,10 +199,13 @@ class AudioEqualizerGUI:
             self.status_label.config(text="Equalizer disabled", fg="blue")
 
 
-    def equalize(self, data):
-        band_list = []
+    def _equalize(self, data, pool):
+        filter_inputs = []
+        # band_list = []
         for gain, (b, a) in zip(self.gains, self.filters):
-            band_list.append(lfilter(b, a, data, axis=0) * (10 ** (gain/20)))
+            filter_inputs.append((b, a, data, gain))
+            # band_list.append(lfilter(b, a, data, axis=0) * (10 ** (gain/20)))
+        band_list = pool.starmap(apply_band_filter, filter_inputs)
         signal = np.sum(band_list, axis=0)
         # Normalize to prevent clipping
         max_val = np.max(np.abs(signal))
@@ -208,16 +228,17 @@ class AudioEqualizerGUI:
     def listen(self):
         with self.loopback_mic.recorder(samplerate=self.sample_rate,
                                         blocksize=self.block_size) as mic:
-            try:
-                self.start_player()
-                while self.applying:
-                    recorded = mic.record(self.record_size)
-                    volume_adjusted = recorded * self.volume
-                    equalized = self.equalize(volume_adjusted)
-                    self.audio_queue.put(equalized)
-            finally:
-                self.playing.value = False
-                self.player.join()
+            with Pool(self.num_dsp_processes) as pool:
+                try:
+                    self.start_player()
+                    while self.applying:
+                        recorded = mic.record(self.record_size)
+                        volume_adjusted = recorded * self.volume
+                        equalized = self._equalize(volume_adjusted, pool)
+                        self.audio_queue.put(equalized)
+                finally:
+                    self.playing.value = False
+                    self.player.join()
     
 
 def main():
