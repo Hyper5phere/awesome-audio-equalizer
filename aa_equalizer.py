@@ -25,6 +25,8 @@ from queue import Empty, Full
 from multiprocessing import Process, Queue, Value, Pool, Array
 
 import numpy as np
+# TODO: try to fix pulseaudio multiprocessing issue on Linux, see: https://github.com/bastibe/SoundCard/issues/96
+# Essentially importing soundcard in both the parent and child processes does not seem to work.
 import soundcard as sc
 from scipy.signal import butter, lfilter
 
@@ -37,9 +39,8 @@ def play_task(playing: bool, audio_queue: Queue,
     in the selected output speaker. Looks slightly ugly because of Python
     multiprocessing library restrictions.
     '''
-    # Might fix multiprocessing issue on Linux, see: https://github.com/bastibe/SoundCard/issues/96
-    import soundcard as sc_child
-    speakers = sc_child.all_speakers()
+    
+    speakers = sc.all_speakers()
     # Seriously, this is the most complicated way to pass a string variable
     # to a function that I've ever wrote... but hey it works!
     output_speaker_name = "".join(chr(c) for c in sp_name_arr[:])
@@ -170,6 +171,7 @@ class AudioEqualizerGUI:
         # Create UI elements
         self.create_widgets()
 
+
     def _design_filters(self, order=2):
         filters = []
         nyq = 0.5 * self.sample_rate
@@ -179,8 +181,10 @@ class AudioEqualizerGUI:
             filters.append(butter(order, [low, high], btype='bandpass'))
         return filters
 
+
     def _encode_shared_string(self, str_var: str):
         return Array('i', [ord(c) for c in str_var])
+
 
     def create_widgets(self):
         # Frame for sliders
@@ -243,10 +247,12 @@ class AudioEqualizerGUI:
             self.master, text="Master Volume", font=("Helvetica", 12))
         self.vol_label.pack(pady=5)
 
+
     def update_volume(self, volume):
         self.volume = int(volume) / 100.
         self.status_label.config(text=f"Updated volume to {
                                  volume} %", fg="blue")
+
 
     def update_gain(self, band_index, gain_db):
         """
@@ -257,6 +263,7 @@ class AudioEqualizerGUI:
         self.status_label.config(
             text=f"Updated {(l + h) // 2} Hz Gain to {gain_db} dB", fg="blue")
 
+
     def reset_gains(self):
         self.logger.info("Resetting equalizer band gains...")
         self._gains = [0] * len(self.freq_bands)
@@ -264,19 +271,26 @@ class AudioEqualizerGUI:
             slider.set(0)
         self.status_label.config(text="Reset band gains", fg="blue")
 
+
     def quit(self):
         self.logger.info("Exiting...")
         self.playing.value = False
         self.applying = False
         # using join() here can result in the app hanging indefinitely,
         # so we just give the workers some time to cleanup
-        time.sleep(1)
+        if self.listener is not None:
+            try:
+                self.listener.join()
+            except RuntimeError:
+                # this happens if listener was not started...
+                pass
         self.master.quit()
+
 
     def toggle_equalizer(self):
         self.applying = not self.applying
         if self.applying:
-            self.listener = Thread(target=self.listen, daemon=True)
+            self.listener = Thread(target=self.listen)
             self.listener.start()
             self.process_button.config(
                 relief="sunken", text="Disable Equalizer", bg="lightgreen", fg="black")
@@ -288,6 +302,7 @@ class AudioEqualizerGUI:
                 relief="raised", text="Enable Equalizer", bg="green", fg="white")
             self.status_label.config(text="Equalizer disabled", fg="blue")
             self.logger.info("Equalizer disabled")
+
 
     def _equalize(self, data, pool):
         filter_inputs = []
@@ -301,6 +316,7 @@ class AudioEqualizerGUI:
             signal /= max_val
         return signal
 
+
     def start_player(self):
         self.playing = Value('b', True)
         self.sample_rate_shared = Value('i', self.sample_rate)
@@ -308,12 +324,12 @@ class AudioEqualizerGUI:
         self.output_speaker_name_shared = self._encode_shared_string(
             self.output_speaker_name)
         self.player = Process(target=play_task,
-                              daemon=True,
                               args=(self.playing, self.audio_queue,
                                     self.sample_rate_shared,
                                     self.block_size_shared,
                                     self.output_speaker_name_shared))
         self.player.start()
+
 
     def listen(self):
         with self.loopback_mic.recorder(samplerate=self.sample_rate,
