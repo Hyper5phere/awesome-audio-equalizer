@@ -11,6 +11,7 @@ Also the audio quality might not be the best. But this is just a
 hobby project, so use it at your own risk :D
 
 Author: Hyper5phere
+Github: https://github.com/Hyper5phere
 Date: 13.10.2024
 '''
 
@@ -51,7 +52,11 @@ def play_task(playing: bool, audio_queue: Queue,
         while playing.value:
             try:
                 data = audio_queue.get_nowait()
-                sp.play(data)
+                if np.any(data):
+                    sp.play(data)
+                else:
+                    # nothing to play here so I sleep...
+                    time.sleep(0.01)
             except Empty:
                 time.sleep(0.0001)
 
@@ -109,17 +114,23 @@ class AudioEqualizerGUI:
         ]
 
         self.config = configparser.ConfigParser()
-        self.config.read('config.ini')
-        self.config = self.config["Equalizer_Configuration"]
+        if not self.config.read('config.ini'):
+            raise AssertionError("Missing config.ini file in app directory!")
+        try:
+            self.config = self.config["Equalizer_Configuration"]
 
-        # Input and output device definitions
-        self.input_speaker_name = self.config["input_speaker_name"]
-        self.output_speaker_name = self.config["output_speaker_name"]
+            # Input and output device definitions
+            self.input_speaker_name = self.config["input_device_name"]
+            self.output_speaker_name = self.config["output_device_name"]
 
-        self.block_size = self.config.getint("block_size")
-        self.record_size = self.block_size * 4
-        self.sample_rate = self.config.getint("sample_rate")
-        self.volume = self.config.getfloat("initial_volume")
+            self.block_size = int(self.config["block_size"])
+            self.record_size = self.block_size * 4
+            self.sample_rate = int(self.config["sample_rate"])
+            self.volume = float(self.config["initial_volume"])
+        except KeyError as kerr:
+            raise KeyError(f"Missing configuration parameter: {kerr}")
+        except ValueError as verr:
+            raise ValueError(f"Invalid configuration parameter value: {verr}")
 
         # Internal equalizer parameters
         self._filters = self._design_filters()
@@ -253,17 +264,16 @@ class AudioEqualizerGUI:
         self.logger.info("Exiting...")
         self.playing.value = False
         self.applying = False
-        if self.player is not None and self.player.is_alive():
-            self.player.join()
-        if self.listener is not None and self.listener.is_alive():
-            self.listener.join()
+        # using join() here can result in the app hanging indefinitely,
+        # so we just give the workers some time to cleanup
+        time.sleep(1)
         self.master.quit()
 
     
     def toggle_equalizer(self):
         self.applying = not self.applying
         if self.applying:
-            self.listener = Thread(target=self.listen)
+            self.listener = Thread(target=self.listen, daemon=True)
             self.listener.start()
             self.process_button.config(relief="sunken", text="Disable Equalizer", bg="lightgreen", fg="black")
             self.status_label.config(text="Equalizer enabled", fg="blue")
@@ -294,6 +304,7 @@ class AudioEqualizerGUI:
         self.block_size_shared = Value('i', self.block_size)
         self.output_speaker_name_shared = self._encode_shared_string(self.output_speaker_name)
         self.player = Process(target=play_task,
+                              daemon=True,
                               args=(self.playing, self.audio_queue,
                                     self.sample_rate_shared,
                                     self.block_size_shared,
@@ -308,17 +319,24 @@ class AudioEqualizerGUI:
                 try:
                     self.start_player()
                     while self.applying:
-                        recorded = mic.record(self.record_size)
-                        volume_adjusted = recorded * self.volume
-                        equalized = self._equalize(volume_adjusted, pool)
-                        try:
-                            self.audio_queue.put_nowait(equalized)
-                        except Full:
-                            self.logger.warning("Internal audio buffer overflow, dropping audio block...")
+                        recorded_data = mic.record(self.record_size)
+                        if np.any(recorded_data):
+                            equalized_data = self._equalize(recorded_data * self.volume, pool)
+                            try:
+                                self.audio_queue.put_nowait(equalized_data)
+                            except Full:
+                                self.logger.warning("Internal audio buffer overflow, dropping audio block...")
+                        else:
+                            time.sleep(0.01)
                 finally:
                     self.playing.value = False
-                    self.player.join()
-    
+                    try:
+                        self.player.join()
+                    except AssertionError:
+                        # just catch an unhelpful and ugly error message:
+                        # AssertionError: can only join a started process
+                        pass
+
 
 def main():
     root = tk.Tk()
