@@ -2,7 +2,5 @@
 /.vscode/*
 *.p
 *.pyc
-*.png
-*.jpg
 .bash_history
 .python_history
