@@ -1,8 +1,24 @@
-import os
+'''
+Audio Equalizer application that processes audio stream coming
+from an input audio device and streams the filtered signal
+to an output device. Requires 
+
+Uses multiple processes, threads and vectorized operations in
+an serious attempt to maximize audio throughput and minimize latency.
+This application can be somewhat heavy on your CPU though, I'm 
+probably doing something wrong as I'm no audio processing expert.
+Also the audio quality might not be the best. But this is just a 
+hobby project, so use it at your own risk :D
+
+Author: Hyper5phere
+Date: 13.10.2024
+'''
+
 import time
 import logging
 import configparser
 import tkinter as tk
+from typing import List
 from threading import Thread
 from queue import Empty, Full
 from multiprocessing import Process, Queue, Value, Pool, Array
@@ -12,37 +28,65 @@ import soundcard as sc
 from scipy.signal import butter, lfilter
 
 
-SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-
-
-def play_task(playing, audio_queue, sample_rate, block_size, sp_name_arr):
-    output_speaker_name = "".join(chr(c) for c in sp_name_arr[:])
-    # output_speaker_name = "BenQ GW2765"
-    # output_speaker_name = "Digital Audio (S/PDIF)"
+def play_task(playing: bool, audio_queue: Queue,
+              sample_rate: int, block_size: int,
+              sp_name_arr: List[int]) -> None:
+    '''
+    Player child process, it simply fetches data from intel queue and plays it
+    in the selected output speaker. Looks slightly ugly because of Python
+    multiprocessing library restrictions.
+    '''
     speakers = sc.all_speakers()
-    speaker = next(s for s in speakers if output_speaker_name in s.name)
+    # Seriously, this is the most complicated way to pass a string variable
+    # to a function that I've ever wrote... but hey it works!
+    output_speaker_name = "".join(chr(c) for c in sp_name_arr[:])
+    try:
+        # let's not be too picky about casing or surrounding whitespace...
+        output_sp_name = output_speaker_name.lower().strip()
+        speaker = next(s for s in speakers if output_sp_name in s.name.lower())
+    except StopIteration:
+        raise ValueError(f'The selected input audio device "{output_speaker_name}" '
+                         'not found on the system!')
     with speaker.player(samplerate=sample_rate.value, blocksize=block_size.value) as sp:
         while playing.value:
             try:
                 data = audio_queue.get_nowait()
                 sp.play(data)
             except Empty:
-                time.sleep(0.00005)
+                time.sleep(0.0001)
 
 
-def apply_band_filter(b, a, data, gain):
+def apply_band_filter(b: np.ndarray, a: np.ndarray,
+                      data: np.ndarray, gain: float):
+    ''' The most performance critical operation of this program,
+    can be run in parallel in many child processes. Applies a
+    filter on the selected frequency band. '''
     return lfilter(b, a, data, axis=0) * (10 ** (gain/20))
 
 
 class AudioEqualizerGUI:
-    def __init__(self, master):
+    '''
+    Tkinter GUI application for equalizing audio stream coming
+    from an input audio device and streaming the filtered signal
+    to output device. Requires `config.ini` file to exist in the
+    application folder to load app configurations.
+    '''
+    def __init__(self, master: tk.Tk):
+        # Tkinter master window
         self.master = master
+
+        # UI parameters
+        self.button_width = 30
         self.window_width = 1400
         self.window_height = 540
+
+        # Init Tkinter GUI window
         master.title("Awesome Audio Equalizer")
         master.geometry(f"{self.window_width}x{self.window_height}")
+
         self.logger = logging.getLogger("awesome.audio.equalizer")
 
+        # which frequency bands to apply filters to
         self.freq_bands = [
             (20, 76),
             (77, 109),
@@ -65,32 +109,45 @@ class AudioEqualizerGUI:
         ]
 
         self.config = configparser.ConfigParser()
-        self.config.read(os.path.join(SCRIPT_DIR, 'config.ini'))
+        self.config.read('config.ini')
         self.config = self.config["Equalizer_Configuration"]
 
-        self.block_size = self.config.getint("block_size")
+        # Input and output device definitions
         self.input_speaker_name = self.config["input_speaker_name"]
         self.output_speaker_name = self.config["output_speaker_name"]
+
+        self.block_size = self.config.getint("block_size")
         self.record_size = self.block_size * 4
         self.sample_rate = self.config.getint("sample_rate")
         self.volume = self.config.getfloat("initial_volume")
-        self.filters = self._design_filters()
-        self.gains = [0] * len(self.freq_bands)  # initial gains at zero
-        self.button_width = 30
+
+        # Internal equalizer parameters
+        self._filters = self._design_filters()
+        self._gains = [0] * len(self.freq_bands)  # initial gains at zero
 
         self.audio_queue = Queue(maxsize=self.config.getint("max_queue_size"))
         self.num_dsp_processes = self.config.getint("num_dsp_processes")
-        self.playing = Value('b', True)
-        self.sample_rate_shared = Value('i', self.sample_rate)
-        self.block_size_shared = Value('i', self.block_size)
-        self.output_speaker_name_shared = self._encode_shared_string(self.output_speaker_name)
         self.player = None
         self.listener = None
 
-        mics = sc.all_microphones(include_loopback=True)
-        self.loopback_mic = next(m for m in mics if self.input_speaker_name in m.name)
-        self.applying = False
+        # Shared memory variables to used between child processes that support atomic operations
+        self.sample_rate_shared = Value('i', self.sample_rate)
+        self.block_size_shared = Value('i', self.block_size)
+        self.output_speaker_name_shared = self._encode_shared_string(self.output_speaker_name)
 
+        # Control flags for threads and processes
+        self.applying = False
+        self.playing = Value('b', True)
+
+        mics = sc.all_microphones(include_loopback=True)
+        try:
+            # let's not be too picky about casing or surrounding whitespace...
+            input_sp_name = self.input_speaker_name.lower().strip()
+            self.loopback_mic = next(m for m in mics if input_sp_name in m.name.lower())
+        except StopIteration:
+            raise ValueError(f'The selected input audio device "{self.input_speaker_name}" '
+                             'not found on the system!')
+        
         self.logger.info("Listening to audio output: %s", self.loopback_mic.name)
         
         # Create UI elements
@@ -112,7 +169,6 @@ class AudioEqualizerGUI:
 
     
     def create_widgets(self):
-        
         # Frame for sliders
         self.sliders_frame = tk.Frame(self.master)
         self.sliders_frame.pack(fill=tk.Y, pady=10)
@@ -150,6 +206,7 @@ class AudioEqualizerGUI:
                                      bg="red", fg="white", width=self.button_width)
         self.exit_button.grid(column=2, row=0, padx=10, pady=2)
 
+        # TODO: implement saving presets?
         # # Load Button
         # self.load_button = tk.Button(self.button_frame, text="Load Configuration", width=20, bg="lightblue")
         # self.load_button.pack(pady=10)
@@ -179,14 +236,14 @@ class AudioEqualizerGUI:
         """
         Update the gain for a specific frequency band.
         """
-        self.gains[band_index] = gain_db
+        self._gains[band_index] = gain_db
         l, h = self.freq_bands[band_index]
         self.status_label.config(text=f"Updated {(l + h) // 2} Hz Gain to {gain_db} dB", fg="blue")
 
 
     def reset_gains(self):
         self.logger.info("Resetting equalizer band gains...")
-        self.gains = [0] * len(self.freq_bands)
+        self._gains = [0] * len(self.freq_bands)
         for slider in self.sliders:
             slider.set(0)
         self.status_label.config(text="Reset band gains", fg="blue")
@@ -210,15 +267,17 @@ class AudioEqualizerGUI:
             self.listener.start()
             self.process_button.config(relief="sunken", text="Disable Equalizer", bg="lightgreen", fg="black")
             self.status_label.config(text="Equalizer enabled", fg="blue")
+            self.logger.info("Equalizer enabled")
         else:
             self.listener.join()
             self.process_button.config(relief="raised", text="Enable Equalizer", bg="green", fg="white")
             self.status_label.config(text="Equalizer disabled", fg="blue")
-
+            self.logger.info("Equalizer disabled")
+                             
 
     def _equalize(self, data, pool):
         filter_inputs = []
-        for gain, (b, a) in zip(self.gains, self.filters):
+        for gain, (b, a) in zip(self._gains, self._filters):
             filter_inputs.append((b, a, data, gain))
         band_list = pool.starmap(apply_band_filter, filter_inputs)
         signal = np.sum(band_list, axis=0)
@@ -255,7 +314,7 @@ class AudioEqualizerGUI:
                         try:
                             self.audio_queue.put_nowait(equalized)
                         except Full:
-                            pass
+                            self.logger.warning("Internal audio buffer overflow, dropping audio block...")
                 finally:
                     self.playing.value = False
                     self.player.join()
