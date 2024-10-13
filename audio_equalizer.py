@@ -52,16 +52,16 @@ class AudioEqualizerGUI:
             (311, 439),
             (440, 621),
             (622, 879),
-            (880, 1199),
-            (1200, 1799),
-            (1800, 2499),
-            (2500, 3499),
-            (3500, 4999),
-            (5000, 6999),
-            (7000, 9999),
-            (10000, 13999),
-            (14000, 17999),
-            (18000, 20000)
+            (880, 1200),
+            (1201, 1800),
+            (1801, 2500),
+            (2501, 3499),
+            (3500, 5000),
+            (5001, 7000),
+            (7001, 10000),
+            (10001, 14000),
+            (14001, 18000),
+            (18001, 20000)
         ]
 
         self.config = configparser.ConfigParser()
@@ -162,7 +162,7 @@ class AudioEqualizerGUI:
         self.status_label = tk.Label(self.master, text="Equalizer not applied", fg="blue", font=("Helvetica", 12))
         self.status_label.pack(pady=5)
 
-        self.vol_slider = tk.Scale(self.master, from_=0, to=100, orient=tk.HORIZONTAL, resolution=1, length=int(self.window_width * 0.9),
+        self.vol_slider = tk.Scale(self.master, from_=0, to=200, orient=tk.HORIZONTAL, resolution=1, length=int(self.window_width * 0.9),
                                    command=self.update_volume)
         self.vol_slider.pack(pady=2)
         self.vol_slider.set(int(self.volume * 100))
@@ -180,7 +180,8 @@ class AudioEqualizerGUI:
         Update the gain for a specific frequency band.
         """
         self.gains[band_index] = gain_db
-        self.status_label.config(text=f"Updated {self.freq_bands[band_index][0]} Hz Gain to {gain_db} dB", fg="blue")
+        l, h = self.freq_bands[band_index]
+        self.status_label.config(text=f"Updated {(l + h) // 2} Hz Gain to {gain_db} dB", fg="blue")
 
 
     def reset_gains(self):
