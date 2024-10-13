@@ -1,12 +1,12 @@
 # Awesome Audio Equalizer
 
-Applies audio equalizer and volume control to all sound of your default audio output device (speaker or headset).
+Applies audio equalizer and volume control to all sound directed to your default audio output device (speaker, headset etc.). In other words, this is a global, system-wide audio equalizer that manipulates all sound your computer makes!
 
 If you've used Winamp or foobar2000, you're probably already familiar with this rather technical looking view:
 
 ![graphical-user-interface-screenshot](assets/gui.png)
 
-Simply adjust frequency band gain sliders that you want to tune. Lower frequencies tune bass sounds and higher ones tune treble sounds. Then just click "Enable Equalizer" and enjoy your enhanced audio! A master volume slider is also included for convenience.
+Simply adjust frequency band gain sliders that you want to tune. Lower frequencies tune bass sounds and higher ones tune treble sounds. Then just click "Enable Equalizer" and enjoy your enhanced audio, no matter where it's coming from!
 
 ## Requirements
 
@@ -35,7 +35,7 @@ output_device_name=Digital Audio (S/PDIF)
 
 Then just run the the `audio_equalizer.bat`. Enjoy!
 
-## Troubleshooting
+## General Troubleshooting
 
 ### Help, my audio sounds horrible or has terrible latency!
 
