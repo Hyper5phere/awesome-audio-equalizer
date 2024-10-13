@@ -33,11 +33,13 @@ def play_task(playing: bool, audio_queue: Queue,
               sample_rate: int, block_size: int,
               sp_name_arr: List[int]) -> None:
     '''
-    Player child process, it simply fetches data from intel queue and plays it
+    Player child process, it simply fetches data from internal queue and plays it
     in the selected output speaker. Looks slightly ugly because of Python
     multiprocessing library restrictions.
     '''
-    speakers = sc.all_speakers()
+    # Might fix multiprocessing issue on Linux, see: https://github.com/bastibe/SoundCard/issues/96
+    import soundcard as sc_child
+    speakers = sc_child.all_speakers()
     # Seriously, this is the most complicated way to pass a string variable
     # to a function that I've ever wrote... but hey it works!
     output_speaker_name = "".join(chr(c) for c in sp_name_arr[:])
@@ -76,6 +78,7 @@ class AudioEqualizerGUI:
     to output device. Requires `config.ini` file to exist in the
     application folder to load app configurations.
     '''
+
     def __init__(self, master: tk.Tk):
         # Tkinter master window
         self.master = master
@@ -141,10 +144,11 @@ class AudioEqualizerGUI:
         self.player = None
         self.listener = None
 
-        # Shared memory variables to used between child processes that support atomic operations
+        # Shared memory variables to be used between child processes that support atomic operations
         self.sample_rate_shared = Value('i', self.sample_rate)
         self.block_size_shared = Value('i', self.block_size)
-        self.output_speaker_name_shared = self._encode_shared_string(self.output_speaker_name)
+        self.output_speaker_name_shared = self._encode_shared_string(
+            self.output_speaker_name)
 
         # Control flags for threads and processes
         self.applying = False
@@ -154,16 +158,17 @@ class AudioEqualizerGUI:
         try:
             # let's not be too picky about casing or surrounding whitespace...
             input_sp_name = self.input_speaker_name.lower().strip()
-            self.loopback_mic = next(m for m in mics if input_sp_name in m.name.lower())
+            self.loopback_mic = next(
+                m for m in mics if input_sp_name in m.name.lower())
         except StopIteration:
             raise ValueError(f'The selected input audio device "{self.input_speaker_name}" '
                              'not found on the system!')
-        
-        self.logger.info("Listening to audio output: %s", self.loopback_mic.name)
-        
+
+        self.logger.info("Listening to audio output: %s",
+                         self.loopback_mic.name)
+
         # Create UI elements
         self.create_widgets()
-
 
     def _design_filters(self, order=2):
         filters = []
@@ -173,34 +178,33 @@ class AudioEqualizerGUI:
             high = highcut / nyq
             filters.append(butter(order, [low, high], btype='bandpass'))
         return filters
-    
 
     def _encode_shared_string(self, str_var: str):
         return Array('i', [ord(c) for c in str_var])
 
-    
     def create_widgets(self):
         # Frame for sliders
         self.sliders_frame = tk.Frame(self.master)
         self.sliders_frame.pack(fill=tk.Y, pady=10)
-        
+
         # Labels and sliders for each band
         self.slider_labels = []
         self.sliders = []
         for i, (low, high) in enumerate(self.freq_bands):
-            
+
             slider = tk.Scale(self.sliders_frame, from_=20, to=-20, orient=tk.VERTICAL, resolution=0.1, length=300,
                               command=lambda val, idx=i: self.update_gain(idx, float(val)), width=15)
             slider.set(0)
             slider.grid(column=i, row=0, padx=0, pady=2)
-            label = tk.Label(self.sliders_frame, text=f"{(high + low) // 2} Hz", width=8, font=("Helvetica", 10), anchor="e")
+            label = tk.Label(self.sliders_frame, text=f"{
+                             (high + low) // 2} Hz", width=8, font=("Helvetica", 10), anchor="e")
             label.grid(column=i, row=1, padx=0, pady=2)
             self.slider_labels.append(label)
             self.sliders.append(slider)
 
         self.button_frame = tk.Frame(self.master)
         self.button_frame.pack(fill=tk.Y, pady=10)
-        
+
         # Process Button
         self.process_button = tk.Button(self.button_frame, text="Enable Equalizer",
                                         command=self.toggle_equalizer, bg="green",
@@ -221,27 +225,28 @@ class AudioEqualizerGUI:
         # # Load Button
         # self.load_button = tk.Button(self.button_frame, text="Load Configuration", width=20, bg="lightblue")
         # self.load_button.pack(pady=10)
-        
+
         # # Save Button
         # self.save_button = tk.Button(self.button_frame, text="Save Configuration", width=20, bg="lightgreen")
         # self.save_button.pack(pady=10)
-        
+
         # Status Label
-        self.status_label = tk.Label(self.master, text="Equalizer not applied", fg="blue", font=("Helvetica", 12))
+        self.status_label = tk.Label(
+            self.master, text="Equalizer not applied", fg="blue", font=("Helvetica", 12))
         self.status_label.pack(pady=5)
 
         self.vol_slider = tk.Scale(self.master, from_=0, to=200, orient=tk.HORIZONTAL, resolution=1, length=int(self.window_width * 0.9),
                                    command=self.update_volume)
         self.vol_slider.pack(pady=2)
         self.vol_slider.set(int(self.volume * 100))
-        self.vol_label = tk.Label(self.master, text="Master Volume", font=("Helvetica", 12))
+        self.vol_label = tk.Label(
+            self.master, text="Master Volume", font=("Helvetica", 12))
         self.vol_label.pack(pady=5)
-        
-        
+
     def update_volume(self, volume):
         self.volume = int(volume) / 100.
-        self.status_label.config(text=f"Updated volume to {volume} %", fg="blue")
-
+        self.status_label.config(text=f"Updated volume to {
+                                 volume} %", fg="blue")
 
     def update_gain(self, band_index, gain_db):
         """
@@ -249,8 +254,8 @@ class AudioEqualizerGUI:
         """
         self._gains[band_index] = gain_db
         l, h = self.freq_bands[band_index]
-        self.status_label.config(text=f"Updated {(l + h) // 2} Hz Gain to {gain_db} dB", fg="blue")
-
+        self.status_label.config(
+            text=f"Updated {(l + h) // 2} Hz Gain to {gain_db} dB", fg="blue")
 
     def reset_gains(self):
         self.logger.info("Resetting equalizer band gains...")
@@ -258,7 +263,6 @@ class AudioEqualizerGUI:
         for slider in self.sliders:
             slider.set(0)
         self.status_label.config(text="Reset band gains", fg="blue")
-
 
     def quit(self):
         self.logger.info("Exiting...")
@@ -269,21 +273,21 @@ class AudioEqualizerGUI:
         time.sleep(1)
         self.master.quit()
 
-    
     def toggle_equalizer(self):
         self.applying = not self.applying
         if self.applying:
             self.listener = Thread(target=self.listen, daemon=True)
             self.listener.start()
-            self.process_button.config(relief="sunken", text="Disable Equalizer", bg="lightgreen", fg="black")
+            self.process_button.config(
+                relief="sunken", text="Disable Equalizer", bg="lightgreen", fg="black")
             self.status_label.config(text="Equalizer enabled", fg="blue")
             self.logger.info("Equalizer enabled")
         else:
             self.listener.join()
-            self.process_button.config(relief="raised", text="Enable Equalizer", bg="green", fg="white")
+            self.process_button.config(
+                relief="raised", text="Enable Equalizer", bg="green", fg="white")
             self.status_label.config(text="Equalizer disabled", fg="blue")
             self.logger.info("Equalizer disabled")
-                             
 
     def _equalize(self, data, pool):
         filter_inputs = []
@@ -296,13 +300,13 @@ class AudioEqualizerGUI:
         if max_val > 1:
             signal /= max_val
         return signal
-    
 
     def start_player(self):
         self.playing = Value('b', True)
         self.sample_rate_shared = Value('i', self.sample_rate)
         self.block_size_shared = Value('i', self.block_size)
-        self.output_speaker_name_shared = self._encode_shared_string(self.output_speaker_name)
+        self.output_speaker_name_shared = self._encode_shared_string(
+            self.output_speaker_name)
         self.player = Process(target=play_task,
                               daemon=True,
                               args=(self.playing, self.audio_queue,
@@ -310,7 +314,6 @@ class AudioEqualizerGUI:
                                     self.block_size_shared,
                                     self.output_speaker_name_shared))
         self.player.start()
-
 
     def listen(self):
         with self.loopback_mic.recorder(samplerate=self.sample_rate,
@@ -321,11 +324,13 @@ class AudioEqualizerGUI:
                     while self.applying:
                         recorded_data = mic.record(self.record_size)
                         if np.any(recorded_data):
-                            equalized_data = self._equalize(recorded_data * self.volume, pool)
+                            equalized_data = self._equalize(
+                                recorded_data * self.volume, pool)
                             try:
                                 self.audio_queue.put_nowait(equalized_data)
                             except Full:
-                                self.logger.warning("Internal audio buffer overflow, dropping audio block...")
+                                self.logger.warning(
+                                    "Internal audio buffer overflow, dropping audio block...")
                         else:
                             time.sleep(0.01)
                 finally:
