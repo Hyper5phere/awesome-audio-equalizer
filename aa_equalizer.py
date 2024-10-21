@@ -200,8 +200,9 @@ class AudioEqualizerGUI:
                               command=lambda val, idx=i: self.update_gain(idx, float(val)), width=15)
             slider.set(0)
             slider.grid(column=i, row=0, padx=0, pady=2)
-            label = tk.Label(self.sliders_frame, text=f"{
-                             (high + low) // 2} Hz", width=8, font=("Helvetica", 10), anchor="e")
+            label = tk.Label(self.sliders_frame, 
+                             text=f"{(high + low) // 2} Hz", width=8,
+                             font=("Helvetica", 10), anchor="e")
             label.grid(column=i, row=1, padx=0, pady=2)
             self.slider_labels.append(label)
             self.sliders.append(slider)
@@ -250,8 +251,7 @@ class AudioEqualizerGUI:
 
     def update_volume(self, volume):
         self.volume = int(volume) / 100.
-        self.status_label.config(text=f"Updated volume to {
-                                 volume} %", fg="blue")
+        self.status_label.config(text=f"Updated volume to {volume} %", fg="blue")
 
 
     def update_gain(self, band_index, gain_db):
