@@ -21,7 +21,13 @@ Currently only tested on Windows 10, might work with other operating systems too
 
 The recommended way to use this software is to first install a virtual audio cable from here: https://vb-audio.com/Cable/index.htm
 
-Then install python and dependencies. 
+After VB-Audio Virtual Cable installation, open your `Sound > Playback` settings and configure them like this:
+
+![graphical-user-interface-screenshot](assets/sounds.png)
+
+At this point no sound should be playing at all, which is normal, as the equalizer is not running to pass the sound between virtual and real output devices.
+
+Then install grab your favorite python interpreter and install dependencies with
 
 ```bash
 pip install -r requirements.txt
@@ -32,8 +38,9 @@ Then you need to select your real output audio device, and write its name to `co
 ```ini
 output_device_name=Digital Audio (S/PDIF)
 ```
+In Windows setup, the `output_device_name` parameter should match the name listed in `Sound > Playback` window.
 
-Then just run the the `audio_equalizer.bat`. Enjoy!
+Then just run `python aa_equalizer.py`. Enjoy!
 
 ## General Troubleshooting
 
