@@ -131,6 +131,7 @@ class AudioEqualizerGUI:
             self.record_size = self.block_size * 4
             self.sample_rate = int(self.config["sample_rate"])
             self.volume = float(self.config["initial_volume"])
+            self.abs_max_band_gain = int(self.config["band_gain_abs_max_value"])
         except KeyError as kerr:
             raise KeyError(f"Missing configuration parameter: {kerr}")
         except ValueError as verr:
@@ -196,7 +197,8 @@ class AudioEqualizerGUI:
         self.sliders = []
         for i, (low, high) in enumerate(self.freq_bands):
 
-            slider = tk.Scale(self.sliders_frame, from_=20, to=-20, orient=tk.VERTICAL, resolution=0.1, length=300,
+            slider = tk.Scale(self.sliders_frame, from_=self.abs_max_band_gain, to=-self.abs_max_band_gain, 
+                              orient=tk.VERTICAL, resolution=0.1, length=300,
                               command=lambda val, idx=i: self.update_gain(idx, float(val)), width=15)
             slider.set(0)
             slider.grid(column=i, row=0, padx=0, pady=2)
